@@ -865,6 +865,13 @@ function findSqlBlocks(lines) {
         continue;
       }
 
+      // 跳过 // 注释行（如 //+" BYRKJE_ZXW,"）
+      if (next.startsWith('//')) {
+        blockLines.push(lines[j]);
+        j++;
+        continue;
+      }
+
       if (next.startsWith('+') || next === '+') {
         blockLines.push(lines[j]);
         j++;
@@ -956,6 +963,11 @@ function convertBlockToTemplate(block) {
       if (line === '`' || line === '`;' || /^`[^`]*`$/.test(line)) {
         result.push(block.lines[i].trimEnd());
         pendingNewTemplate = true;
+        continue;
+      }
+
+      // 跳过 // 注释行（如 //+" BYRKJE_ZXW,"）
+      if (line.startsWith('//')) {
         continue;
       }
 
