@@ -542,6 +542,7 @@ function removeSqlBlockComments(content) {
   let count = 0;
   const lines = content.split('\n');
   let inTemplate = false;
+  let inBlockComment = false;
   const result = [];
 
   for (let i = 0; i < lines.length; i++) {
@@ -555,16 +556,86 @@ function removeSqlBlockComments(content) {
       continue;
     }
 
+    // 模板字面量闭合行（含奇数个 backtick）
     if (backtickCount % 2 === 1) {
       inTemplate = false;
       result.push(line);
+      // 检查闭合后是否有 /* */ 注释块夹在模板和续行之间
+      // 如：` \n /* ... */ \n + "..."
+      let peek = i + 1;
+      while (peek < lines.length && lines[peek].trim() === '') peek++;
+      if (peek < lines.length && lines[peek].trim().startsWith('/*')) {
+        // 找到 /* 注释，向前扫描到 */ 之后
+        let commentEnd = peek;
+        let foundEnd = false;
+        while (commentEnd < lines.length) {
+          if (lines[commentEnd].includes('*/')) {
+            foundEnd = true;
+            commentEnd++;
+            break;
+          }
+          commentEnd++;
+        }
+        if (foundEnd) {
+          // 跳过 */ 之后的空行，看下一行是否以 + 开头（SQL 拼接续行）
+          let afterComment = commentEnd;
+          while (afterComment < lines.length && lines[afterComment].trim() === '') afterComment++;
+          if (afterComment < lines.length && lines[afterComment].trim().startsWith('+')) {
+            // 确认是 SQL 拼接链中的注释，跳过注释行
+            for (let k = i + 1; k < commentEnd; k++) {
+              count++;
+            }
+            i = commentEnd - 1; // -1 因为 for 循环会 i++
+          }
+        }
+      }
       continue;
     }
 
-    // 在模板字面量内部，检查是否是注释行
+    // 在模板字面量内部，处理 /* */ 注释
+    // 先处理跨行 /* 注释的状态
+    if (inBlockComment) {
+      const endIdx = line.indexOf('*/');
+      if (endIdx >= 0) {
+        inBlockComment = false;
+        const after = line.substring(endIdx + 2).trim();
+        if (after) {
+          result.push(after);
+        }
+        // 整行是注释内容，跳过
+        count++;
+        continue;
+      }
+      // 整行在注释内部，跳过
+      count++;
+      continue;
+    }
+
     const trimmed = line.trim();
-    if (trimmed.startsWith('//') || trimmed.startsWith('/*') || trimmed.startsWith('*')) {
-      // 跳过注释行
+
+    // 检查 /* 开始的块注释（可能单行或多行）
+    if (trimmed.startsWith('/*')) {
+      const endIdx = line.indexOf('*/', line.indexOf('/*') + 2);
+      if (endIdx >= 0) {
+        // 单行 /* ... */ 注释
+        const after = line.substring(endIdx + 2).trim();
+        if (after) {
+          result.push(after);
+          count++;
+          continue;
+        }
+        // 整行是注释，跳过
+        count++;
+        continue;
+      }
+      // 多行注释开始
+      inBlockComment = true;
+      count++;
+      continue;
+    }
+
+    // 检查 // 或 * 开头的注释行
+    if (trimmed.startsWith('//') || trimmed.startsWith('*')) {
       count++;
       continue;
     }
@@ -572,11 +643,9 @@ function removeSqlBlockComments(content) {
     // 剥离行尾 // 注释（保留代码部分）
     if (line.includes('//')) {
       const commentIdx = line.indexOf('//');
-      // 检查 // 是否在字符串内部
       const beforeComment = line.substring(0, commentIdx);
       const singleQuotes = (beforeComment.match(/'/g) || []).length;
       const doubleQuotes = (beforeComment.match(/"/g) || []).length;
-      // 如果引号数量是偶数，说明 // 在字符串外部，是注释
       if (singleQuotes % 2 === 0 && doubleQuotes % 2 === 0) {
         result.push(line.substring(0, commentIdx).trimEnd());
         count++;
@@ -1899,6 +1968,14 @@ function main() {
     fileReport.templateLiteralFailed = r3.failedBlocks;
     if (r3.count > 0) console.log(`  模板字面量(多行): ${r3.count} 处`);
     if (r3.failedBlocks.length > 0) console.log(`  模板字面量(需LLM): ${r3.failedBlocks.length} 个`);
+
+    // 3b. 模板字面量转换后，清理闭合 backtick 和续行之间的 /* */ 注释块
+    if (r3.count > 0) {
+      const r3d = removeSqlBlockComments(content);
+      content = r3d.content;
+      fileReport.commentRemovals += r3d.count;
+      if (r3d.count > 0) console.log(`  删除注释(模板闭合后): ${r3d.count} 处`);
+    }
 
     // 4. 单行 SQL 拼接转模板字面量
     const r3b = convertSingleLineSql(content);
