@@ -3,13 +3,13 @@
   "processedFiles": [
     {
       "file": "",
-      "simpleReplacements": 0,
-      "patternReplacements": 0,
-      "toCharConversions": 0,
+      "simpleReplacements": 94,
+      "patternReplacements": 1,
+      "toCharConversions": 24,
       "toCharNumberConversions": 0,
-      "concatConversions": 0,
+      "concatConversions": 3,
       "concatPipeFixes": 0,
-      "commentRemovals": 3,
+      "commentRemovals": 0,
       "mergeSplitToChar": 0,
       "toDateConversions": 0,
       "instrConversions": 0,
@@ -20,7 +20,7 @@
       "pivotConversions": 0,
       "fm99Conversions": 0,
       "swjgSqlFixes": 0,
-      "templateLiteralConverted": 0,
+      "templateLiteralConverted": 1,
       "templateLiteralFailed": [],
       "complexPatterns": []
     }

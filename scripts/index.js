@@ -812,8 +812,7 @@ function findSqlBlocks(lines) {
   const blocks = [];
   const startRe = /(?:var\s+)?(\w+(?:\.\w+)?)\s*(\+=|=)\s*"/;
   // 首行无引号（如 str_sql +=），下一行以 " SELECT/FROM/WITH 开头
-  const nextLineRe = /^\s*(?:var\s+)?(\w+(?:\.\w+)?)\s*(\+=|=)\s*$/;
-  const htmlRe = /^\s*</;
+  const startReNoQuote = /(?:var\s+)?(\w+(?:\.\w+)?)\s*(\+=|=)\s*$/;
 
   for (let i = 0; i < lines.length; i++) {
     const rawLine = lines[i];
@@ -821,14 +820,28 @@ function findSqlBlocks(lines) {
     // 剥离行尾 // 注释（注释会截断 + 拼接链）
     const line = rawLine.replace(/\s+\/\/.*$/, '');
 
-    const m = line.match(startRe);
-    if (!m) continue;
-
-    const varName = m[1];
-    const op = m[2];
-    if (!/SELECT|FROM|WITH/i.test(line)) continue;
+    let m = line.match(startRe);
+    let varName, op;
+    if (m) {
+      varName = m[1];
+      op = m[2];
+      // 首行有 " 但无 SQL 关键词 → 跳过
+      if (!/SELECT|FROM|WITH/i.test(line)) continue;
+    } else {
+      // 首行无 "（如 str_sql +=），尝试无引号匹配
+      m = line.match(startReNoQuote);
+      if (!m) continue;
+      varName = m[1];
+      op = m[2];
+      // 向前看一行，检查是否以 " + SQL 关键词开头
+      let peekNext = i + 1;
+      while (peekNext < lines.length && lines[peekNext].trim() === '') peekNext++;
+      const nextRaw = peekNext < lines.length ? lines[peekNext].trim().replace(/\s+\/\/.*$/, '') : '';
+      if (!nextRaw.startsWith('"') || !/SELECT|FROM|WITH/i.test(nextRaw)) continue;
+    }
 
     const blockLines = [line];
+    let inBlockComment = false;  // 跟踪 /* */ 跨行注释
     let j = i + 1;
     while (j < lines.length) {
       const next = lines[j].trim().replace(/\s+\/\/.*$/, '');
@@ -837,6 +850,21 @@ function findSqlBlocks(lines) {
       let peekIdx = j + 1;
       while (peekIdx < lines.length && lines[peekIdx].trim().replace(/\s+\/\/.*$/, '') === '') peekIdx++;
       const nextNext = (peekIdx < lines.length) ? lines[peekIdx].trim().replace(/\s+\/\/.*$/, '') : '';
+
+      // 跳过 /* */ 注释（单行或多行）
+      if (inBlockComment) {
+        blockLines.push(lines[j]);
+        if (next.includes('*/')) inBlockComment = false;
+        j++;
+        continue;
+      }
+      if (next.startsWith('/*')) {
+        blockLines.push(lines[j]);
+        if (!next.includes('*/')) inBlockComment = true;
+        j++;
+        continue;
+      }
+
       if (next.startsWith('+') || next === '+') {
         blockLines.push(lines[j]);
         j++;
@@ -844,8 +872,8 @@ function findSqlBlocks(lines) {
                  (nextNext.startsWith('+') || nextNext.startsWith('"'))) {
         blockLines.push(lines[j]);
         j++;
-      } else if (next.startsWith('"') && (prev.endsWith('+') || prev.endsWith('"'))) {
-        // 前一行以 + 或 " 结尾，当前行以 " 开头 → 续行
+      } else if (next.startsWith('"') && (prev.endsWith('+') || prev.endsWith('"') || prev.endsWith('`'))) {
+        // 前一行以 + 或 " 或 ` 结尾，当前行以 " 开头 → 续行
         blockLines.push(lines[j]);
         j++;
       } else if (/^\+?\s*\w+(\.\w+)*\s*\+?\s*;*\s*$/.test(next) && (prev.endsWith('+') || /`\s*;*\s*$/.test(prev))) {
@@ -862,57 +890,6 @@ function findSqlBlocks(lines) {
       }
     }
 
-    if (blockLines.length > 1) {
-      blocks.push({ startIdx: i, lines: blockLines, varName, op });
-    }
-  }
-
-  // 第二轮：检测首行无引号的 SQL 拼接块（如 str_sql +=，下一行以 " SELECT 开头）
-  for (let i = 0; i < lines.length; i++) {
-    const rawLine = lines[i];
-    if (isCommentLine(rawLine) || htmlRe.test(rawLine)) continue;
-    const line = rawLine.replace(/\s+\/\/.*$/, '');
-    const m = line.match(nextLineRe);
-    if (!m) continue;
-    const varName = m[1];
-    const op = m[2];
-    // 向前看一行，检查是否以 " + SQL 关键词开头
-    let peekNext = i + 1;
-    while (peekNext < lines.length && lines[peekNext].trim() === '') peekNext++;
-    if (peekNext >= lines.length) continue;
-    const nextRaw = lines[peekNext].trim().replace(/\s+\/\/.*$/, '');
-    if (!nextRaw.startsWith('"') || !/SELECT|FROM|WITH/i.test(nextRaw)) continue;
-    // 检查是否已被第一轮捕获（避免重复）
-    if (blocks.some(b => b.startIdx === i)) continue;
-    // 构建块：首行 + 后续所有续行
-    const blockLines = [line];
-    let j = i + 1;
-    while (j < lines.length) {
-      const next = lines[j].trim().replace(/\s+\/\/.*$/, '');
-      const prev = lines[j - 1].trim().replace(/\s+\/\/.*$/, '');
-      let peekIdx = j + 1;
-      while (peekIdx < lines.length && lines[peekIdx].trim().replace(/\s+\/\/.*$/, '') === '') peekIdx++;
-      const nextNext = (peekIdx < lines.length) ? lines[peekIdx].trim().replace(/\s+\/\/.*$/, '') : '';
-      if (next.startsWith('+') || next === '+') {
-        blockLines.push(lines[j]);
-        j++;
-      } else if ((next.startsWith('"') || next.startsWith("'") || next === '') &&
-                 (nextNext.startsWith('+') || nextNext.startsWith('"'))) {
-        blockLines.push(lines[j]);
-        j++;
-      } else if (next.startsWith('"') && (prev.endsWith('+') || prev.endsWith('"'))) {
-        blockLines.push(lines[j]);
-        j++;
-      } else if (/^\+?\s*\w+(\.\w+)*\s*\+?\s*;*\s*$/.test(next) && (prev.endsWith('+') || /`\s*;*\s*$/.test(prev))) {
-        blockLines.push(lines[j]);
-        j++;
-      } else if (/^\+?\s*\w+(\.\w+)*\s*\+/.test(next) && prev.endsWith('+')) {
-        blockLines.push(lines[j]);
-        j++;
-      } else {
-        break;
-      }
-    }
     if (blockLines.length > 1) {
       blocks.push({ startIdx: i, lines: blockLines, varName, op });
     }
@@ -944,11 +921,43 @@ function convertBlockToTemplate(block) {
     const lastLine = block.lines[block.lines.length - 1].trim().replace(/\s+\/\/.*$/, '');
     const hasTrailingSemicolon = /;\s*$/.test(lastLine) || /["']\s*;\s*$/.test(lastLine);
 
+    let inBlockComment = false;
+    let pendingNewTemplate = false;  // backtick 闭合后，下一个 + " 需要新开模板字面量
     for (let i = 0; i < block.lines.length; i++) {
       let line = block.lines[i].trim();
 
       // 剥离行尾 // 注释（注释会截断 + 拼接链）
       line = line.replace(/\s+\/\/.*$/, '');
+
+      // 跳过 /* */ 注释（单行或多行）
+      if (inBlockComment) {
+        if (line.includes('*/')) {
+          inBlockComment = false;
+          // */ 后可能有代码
+          line = line.substring(line.indexOf('*/') + 2).trim();
+          if (!line) continue;
+        } else {
+          continue;
+        }
+      }
+      if (line.startsWith('/*')) {
+        const endIdx = line.indexOf('*/', 2);
+        if (endIdx >= 0) {
+          // 单行注释，保留 */ 后的内容
+          line = line.substring(endIdx + 2).trim();
+          if (!line) continue;
+        } else {
+          inBlockComment = true;
+          continue;
+        }
+      }
+
+      // backtick 行（已有模板字面量的闭合）：闭合当前模板，标记后续需要新开
+      if (line === '`' || line === '`;' || /^`[^`]*`$/.test(line)) {
+        result.push(block.lines[i].trimEnd());
+        pendingNewTemplate = true;
+        continue;
+      }
 
       // 第一行：移除 varName op " 前缀，保留 var 关键字
       if (i === 0) {
@@ -960,6 +969,13 @@ function convertBlockToTemplate(block) {
         line = line.replace(/^(\w+(?:\.\w+)*)\s*\+\s*"/, '${$1}');
         // 处理裸变量行（如 + parent.gpm.cxtj.date）
         line = line.replace(/^\+\s*(\w+(?:\.\w+)*)\s*$/, '${$1}');
+
+        // backtick 闭合后，续行需要新开模板字面量
+        if (pendingNewTemplate && line) {
+          const lineIndent = block.lines[i].match(/^(\s*)/)[1] || '          ';
+          result.push(lineIndent + '`');
+          pendingNewTemplate = false;
+        }
       }
 
       // 移除行尾的 " + （续行标记）、末尾引号、分号
