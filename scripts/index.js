@@ -742,6 +742,9 @@ function convertSingleLineSql(content) {
 function findSqlBlocks(lines) {
   const blocks = [];
   const startRe = /(?:var\s+)?(\w+(?:\.\w+)?)\s*(\+=|=)\s*"/;
+  // 首行无引号（如 str_sql +=），下一行以 " SELECT/FROM/WITH 开头
+  const nextLineRe = /^\s*(?:var\s+)?(\w+(?:\.\w+)?)\s*(\+=|=)\s*$/;
+  const htmlRe = /^\s*</;
 
   for (let i = 0; i < lines.length; i++) {
     const rawLine = lines[i];
@@ -791,12 +794,63 @@ function findSqlBlocks(lines) {
     }
 
     if (blockLines.length > 1) {
-      console.log(`  [debug-findSql] 发现块: ${varName} ${op}, 行数=${blockLines.length}, 首行=${blockLines[0].trim().substring(0,50)}`);
       blocks.push({ startIdx: i, lines: blockLines, varName, op });
-    } else {
-      console.log(`  [debug-findSql] 单行跳过: ${varName} ${op}, 行数=${blockLines.length}`);
     }
   }
+
+  // 第二轮：检测首行无引号的 SQL 拼接块（如 str_sql +=，下一行以 " SELECT 开头）
+  for (let i = 0; i < lines.length; i++) {
+    const rawLine = lines[i];
+    if (isCommentLine(rawLine) || htmlRe.test(rawLine)) continue;
+    const line = rawLine.replace(/\s+\/\/.*$/, '');
+    const m = line.match(nextLineRe);
+    if (!m) continue;
+    const varName = m[1];
+    const op = m[2];
+    // 向前看一行，检查是否以 " + SQL 关键词开头
+    let peekNext = i + 1;
+    while (peekNext < lines.length && lines[peekNext].trim() === '') peekNext++;
+    if (peekNext >= lines.length) continue;
+    const nextRaw = lines[peekNext].trim().replace(/\s+\/\/.*$/, '');
+    if (!nextRaw.startsWith('"') || !/SELECT|FROM|WITH/i.test(nextRaw)) continue;
+    // 检查是否已被第一轮捕获（避免重复）
+    if (blocks.some(b => b.startIdx === i)) continue;
+    // 构建块：首行 + 后续所有续行
+    const blockLines = [line];
+    let j = i + 1;
+    while (j < lines.length) {
+      const next = lines[j].trim().replace(/\s+\/\/.*$/, '');
+      const prev = lines[j - 1].trim().replace(/\s+\/\/.*$/, '');
+      let peekIdx = j + 1;
+      while (peekIdx < lines.length && lines[peekIdx].trim().replace(/\s+\/\/.*$/, '') === '') peekIdx++;
+      const nextNext = (peekIdx < lines.length) ? lines[peekIdx].trim().replace(/\s+\/\/.*$/, '') : '';
+      if (next.startsWith('+') || next === '+') {
+        blockLines.push(lines[j]);
+        j++;
+      } else if ((next.startsWith('"') || next.startsWith("'") || next === '') &&
+                 (nextNext.startsWith('+') || nextNext.startsWith('"'))) {
+        blockLines.push(lines[j]);
+        j++;
+      } else if (next.startsWith('"') && (prev.endsWith('+') || prev.endsWith('"'))) {
+        blockLines.push(lines[j]);
+        j++;
+      } else if (/^\+?\s*\w+(\.\w+)*\s*\+?\s*;*\s*$/.test(next) && (prev.endsWith('+') || /`\s*;*\s*$/.test(prev))) {
+        blockLines.push(lines[j]);
+        j++;
+      } else if (/^\+?\s*\w+(\.\w+)*\s*\+/.test(next) && prev.endsWith('+')) {
+        blockLines.push(lines[j]);
+        j++;
+      } else {
+        break;
+      }
+    }
+    if (blockLines.length > 1) {
+      blocks.push({ startIdx: i, lines: blockLines, varName, op });
+    }
+  }
+
+  // 按 startIdx 排序，确保处理顺序正确
+  blocks.sort((a, b) => a.startIdx - b.startIdx);
   return blocks;
 }
 
@@ -1839,7 +1893,6 @@ function main() {
 
     // 3. 模板字面量重构（多行块，自动转换，失败的提取给 LLM）
     //    必须在 ||→CONCAT 之前执行，避免 SQL 内部的 || 被错误转换
-    console.log(`  [debug] 开始模板字面量重构, content长度=${content.length}`);
     const r3 = refactorTemplateLiterals(content);
     content = r3.content;
     fileReport.templateLiteralConverted = r3.count;
