@@ -1,0 +1,34 @@
+{
+  "keywordsConfigPath": "D:/Project/oracle_keywords_utils/oracle_keywords_file_config.txt",
+  "simpleReplacements": {
+    "NVL(": "IFNULL(",
+    "NVL2(": "IF(",
+    "SUBSTR(": "SUBSTRING(",
+    "LENGTH(": "CHAR_LENGTH(",
+    "LENGTHB(": "LENGTH(",
+    "SYSDATE": "NOW()",
+    "sys_guid()": "REPLACE(UUID(), '-', '')"
+  },
+  "exactReplacements": {},
+  "patternReplacements": [
+    { "find": "select rownum rn,", "replace": "select ROW_NUMBER() OVER() AS rn,", "desc": "rownum→ROW_NUMBER()" },
+    { "find": "select rownum,z.*", "replace": "select ROW_NUMBER() OVER() AS rn,z.*", "desc": "rownum→ROW_NUMBER() (CDATA变体)" },
+    { "find": " AND ROWNUM = 1", "replace": " LIMIT 1", "desc": "ROWNUM=1→LIMIT 1" },
+    { "find": " and rownum = 1", "replace": " LIMIT 1", "desc": "rownum=1→LIMIT 1" },
+    { "find": "TRUNC(NOW())", "replace": "DATE(NOW())", "desc": "TRUNC(SYSDATE)→DATE(NOW())" },
+    { "find": "trunc(now())", "replace": "DATE(NOW())", "desc": "trunc(sysdate)→DATE(NOW())" },
+    { "find": "TRUNC(SYSDATE)", "replace": "DATE(NOW())", "desc": "TRUNC(SYSDATE)→DATE(NOW())（SYSDATE未替换时）" }
+  ],
+  "regexReplacements": [
+    { "pattern": "(ORDER\\s+BY\\s+[\\w.]+(?:\\s+(?:ASC|DESC))?)\\s+NULLS\\s+FIRST", "replace": "$1", "desc": "NULLS FIRST（MySQL默认NULL排最前，可直接删除）" },
+    { "pattern": "(ORDER\\s+BY\\s+[\\w.]+(?:\\s+(?:ASC|DESC))?)\\s+NULLS\\s+LAST", "replace": "$1", "desc": "NULLS LAST（MySQL默认DESC时NULL排最后，ASC时需特殊处理）" }
+  ],
+  "toCharConversions": true,
+  "complexKeywords": [
+    "LISTAGG", "MERGE INTO", "rownum",
+    "SEQUENCE",
+    "MINUS", "CONNECT BY"
+  ],
+  "skipPrefixes": ["//", "/*", "<!--"],
+  "preservePattern": "(+)"
+}
