@@ -67,7 +67,7 @@ node scripts/index.js --target /path/to/module/
 | `DECODE(expr, s1, r1, ...)` | `CASE WHEN expr=s1 THEN r1 ... END` | DECODE 转换 |
 | `PIVOT(SUM(col) ...)` | `SUM(CASE WHEN ... END)` | PIVOT 转换 |
 | `\|\|` | `CONCAT()` | 字符串拼接 |
-| `" + var + "` | `` `${var}` `` | 模板字面量 |
+| `" + var + "` | `` `${var}` `` | 模板字面量（SQL片段变量除外） |
 | `(+)` | `(+)` | **保留原样** |
 
 ## 输出报告
@@ -111,6 +111,9 @@ node scripts/index.js --target /path/to/module/
 4. **模板字面量优先** — 先重构模板字面量，再处理 `||`→CONCAT，避免 SQL 内部 `||` 被误转
 5. **保护 JS 方法** — 简单替换使用 `(?<!\.)` 负向回顾，避免将 `variable.substr()` 等 JS 方法误转为 SQL 函数
 6. **支持表达式模板** — 模板字面量重构支持 `" + (expr) + "` 模式（含嵌套括号）
+7. **模板字面量闭合** — backtick 行后有续行时，block 结束前自动闭合 pending 的模板字面量
+8. **SQL 片段变量检测** — `str_where*`、`lbxz` 等已知含引号的变量保持 `` ` + var + ` `` 拼接，不嵌入模板字面量
+9. **跨行属性访问续行** — `parent.gpm` 被拆到两行（下一行以 `.cxtj` 开头）时自动识别为续行
 
 ## 项目结构
 
