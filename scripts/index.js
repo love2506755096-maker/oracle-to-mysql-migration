@@ -96,7 +96,9 @@ function simpleReplace(content, config) {
     if (isCommentLine(line)) return line;
     let modified = line;
     for (const [from, to] of Object.entries(config.simpleReplacements || {})) {
-      const re = new RegExp(from.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
+      // 添加 (?<!\.) 负向回顾，避免匹配 JavaScript 方法调用（如 variable.substr()）
+      const escaped = from.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const re = new RegExp('(?<!\\.)' + escaped, 'gi');
       const matches = modified.match(re);
       if (matches) { count += matches.length; modified = modified.replace(re, to); }
     }
@@ -789,14 +791,18 @@ function convertSingleLineSql(content) {
     // 移除末尾的 ;
     raw = raw.replace(/;\s*$/, '');
 
-    // 处理 " + var + " 模式
+    // 处理 " + var + " 和 " + (expr) + " 模式
     let converted = raw;
     for (let j = 0; j < 10; j++) {
       const prev = converted;
+      // 先匹配括号表达式如 (parent.gpm.cxtj.jcdm + 1)（支持嵌套括号），再匹配简单变量
+      converted = converted.replace(/"\s*\+\s*(\((?:[^()]|\([^()]*\))*\))\s*\+\s*"/g, '${$1}');
       converted = converted.replace(/"\s*\+\s*([\w.()]+)\s*\+\s*"/g, '${$1}');
       if (converted === prev) break;
     }
+    converted = converted.replace(/"\s*\+\s*(\((?:[^()]|\([^()]*\))*\))\s*$/g, '${$1}');
     converted = converted.replace(/"\s*\+\s*([\w.()]+)\s*$/g, '${$1}');
+    converted = converted.replace(/^(\((?:[^()]|\([^()]*\))*\))\s*\+\s*"/g, '${$1}');
     converted = converted.replace(/^([\w.()]+)\s*\+\s*"/g, '${$1}');
     converted = converted.replace(/"\s*\+\s*"/g, '');
     converted = converted.replace(/^"/, '').replace(/"$/, '');
@@ -977,7 +983,7 @@ function convertBlockToTemplate(block) {
       } else {
         // 续行：移除开头的 + " 或变量 + "
         line = line.replace(/^\+\s*"?/, '');
-        // 处理以变量开头的续行（如 parent.gpm.cxtj.str_where_nd + ") A, ..."）
+        // 处理以变量或表达式开头的续行（如 parent.gpm.cxtj.str_where_nd + ") A, ..."）
         line = line.replace(/^(\w+(?:\.\w+)*)\s*\+\s*"/, '${$1}');
         // 处理裸变量行（如 + parent.gpm.cxtj.date）
         line = line.replace(/^\+\s*(\w+(?:\.\w+)*)\s*$/, '${$1}');
@@ -994,18 +1000,25 @@ function convertBlockToTemplate(block) {
       line = line.replace(/"\s*\+\s*$/, '');
       line = line.replace(/"?\s*;?\s*$/, '');
 
-      // 处理行内的 " + var + " 模式
+      // 处理行内的 " + var + " 和 " + (expr) + " 模式
       // 多次替换直到稳定
       for (let j = 0; j < 10; j++) {
         const prev = line;
+        // 先匹配括号表达式如 (parent.gpm.cxtj.jcdm + 1)（支持嵌套括号），再匹配简单变量
+        line = line.replace(/"\s*\+\s*(\((?:[^()]|\([^()]*\))*\))\s*\+\s*"/g, '${$1}');
         line = line.replace(/"\s*\+\s*([\w.()]+)\s*\+\s*"/g, '${$1}');
         if (line === prev) break;
       }
+      // 行尾的 " + (expr) +（没有后续开引号，下一行以 " 开头）
+      line = line.replace(/"\s*\+\s*(\((?:[^()]|\([^()]*\))*\))\s*\+\s*$/g, '${$1}');
       // 行尾的 " + var +（没有后续开引号，下一行以 " 开头）
       line = line.replace(/"\s*\+\s*([\w.()]+)\s*\+\s*$/g, '${$1}');
+      // 行尾的 " + (expr)（没有后续开引号）
+      line = line.replace(/"\s*\+\s*(\((?:[^()]|\([^()]*\))*\))\s*$/g, '${$1}');
       // 行尾的 " + var（没有后续开引号）
       line = line.replace(/"\s*\+\s*([\w.()]+)\s*$/g, '${$1}');
-      // 行首的 var + "（没有前导闭引号）
+      // 行首的 (expr) + " 或 var + "（没有前导闭引号）
+      line = line.replace(/^(\((?:[^()]|\([^()]*\))*\))\s*\+\s*"/g, '${$1}');
       line = line.replace(/^([\w.()]+)\s*\+\s*"/g, '${$1}');
       // " + "（字符串段拼接，无变量）→ 移除
       line = line.replace(/"\s*\+\s*"/g, '');
