@@ -732,6 +732,15 @@ function removeInlineComments(content, preserveLines) {
   return { content: result.join('\n'), count };
 }
 
+// ==================== SQL 片段变量检测 ====================
+
+/**
+ * 检测变量名是否为已知的 SQL 片段变量（值内含单引号，不能嵌入模板字面量）
+ * 如 str_where, str_where_nd, lbxz 等
+ */
+const SQL_FRAGMENT_VARS_RE = /(?:^|\.)str_where(?:_\w+)?|(?:^|\.)lbxz$/i;
+function shouldKeepConcat(varName) { return SQL_FRAGMENT_VARS_RE.test(varName); }
+
 // ==================== 模板字面量重构 ====================
 
 function refactorTemplateLiterals(content) {
@@ -797,13 +806,13 @@ function convertSingleLineSql(content) {
       const prev = converted;
       // 先匹配括号表达式如 (parent.gpm.cxtj.jcdm + 1)（支持嵌套括号），再匹配简单变量
       converted = converted.replace(/"\s*\+\s*(\((?:[^()]|\([^()]*\))*\))\s*\+\s*"/g, '${$1}');
-      converted = converted.replace(/"\s*\+\s*([\w.()]+)\s*\+\s*"/g, '${$1}');
+      converted = converted.replace(/"\s*\+\s*([\w.()]+)\s*\+\s*"/g, (m, varName) => shouldKeepConcat(varName) ? `\` + ${varName} + \`` : '${' + varName + '}');
       if (converted === prev) break;
     }
     converted = converted.replace(/"\s*\+\s*(\((?:[^()]|\([^()]*\))*\))\s*$/g, '${$1}');
-    converted = converted.replace(/"\s*\+\s*([\w.()]+)\s*$/g, '${$1}');
+    converted = converted.replace(/"\s*\+\s*([\w.()]+)\s*$/g, (m, varName) => shouldKeepConcat(varName) ? `\` + ${varName}` : '${' + varName + '}');
     converted = converted.replace(/^(\((?:[^()]|\([^()]*\))*\))\s*\+\s*"/g, '${$1}');
-    converted = converted.replace(/^([\w.()]+)\s*\+\s*"/g, '${$1}');
+    converted = converted.replace(/^([\w.()]+)\s*\+\s*"/g, (m, varName) => shouldKeepConcat(varName) ? `${varName} + \`` : '${' + varName + '}');
     converted = converted.replace(/"\s*\+\s*"/g, '');
     converted = converted.replace(/^"/, '').replace(/"$/, '');
 
@@ -898,6 +907,10 @@ function findSqlBlocks(lines) {
         // 前一行以 + 结尾 → 续行
         blockLines.push(lines[j]);
         j++;
+      } else if (/^\.\w+/.test(next) && /\w$/.test(prev)) {
+        // 跨行属性访问（如 parent.gpm 被拆到两行，下一行以 .cxtj.tjrq 开头）
+        blockLines.push(lines[j]);
+        j++;
       } else {
         break;
       }
@@ -929,6 +942,19 @@ function convertBlockToTemplate(block) {
     const op = m[4];
 
     const result = [`${indent}${varKeyword}${varName} ${op} \``];
+
+    // 预处理：合并跨行属性访问（如 parent.gpm 被拆到两行，下一行以 .cxtj 开头）
+    for (let k = 1; k < block.lines.length; k++) {
+      const curLine = block.lines[k].trim();
+      if (/^\.\w+/.test(curLine) && k > 0) {
+        const prevLine = block.lines[k - 1];
+        if (/\w$/.test(prevLine.trimEnd())) {
+          block.lines[k - 1] = prevLine.trimEnd() + curLine;
+          block.lines.splice(k, 1);
+          k--;
+        }
+      }
+    }
 
     // 检测原始 SQL 最后一行是否以 ; 结尾（保留一致性）
     const lastLine = block.lines[block.lines.length - 1].trim().replace(/\s+\/\/.*$/, '');
@@ -1001,25 +1027,26 @@ function convertBlockToTemplate(block) {
       line = line.replace(/"?\s*;?\s*$/, '');
 
       // 处理行内的 " + var + " 和 " + (expr) + " 模式
+      // 注意：含 SQL 片段的变量（值内含单引号）不能嵌入模板字面量，需保持拼接
       // 多次替换直到稳定
       for (let j = 0; j < 10; j++) {
         const prev = line;
         // 先匹配括号表达式如 (parent.gpm.cxtj.jcdm + 1)（支持嵌套括号），再匹配简单变量
         line = line.replace(/"\s*\+\s*(\((?:[^()]|\([^()]*\))*\))\s*\+\s*"/g, '${$1}');
-        line = line.replace(/"\s*\+\s*([\w.()]+)\s*\+\s*"/g, '${$1}');
+        line = line.replace(/"\s*\+\s*([\w.()]+)\s*\+\s*"/g, (m, varName) => shouldKeepConcat(varName) ? `\` + ${varName} + \`` : '${' + varName + '}');
         if (line === prev) break;
       }
       // 行尾的 " + (expr) +（没有后续开引号，下一行以 " 开头）
       line = line.replace(/"\s*\+\s*(\((?:[^()]|\([^()]*\))*\))\s*\+\s*$/g, '${$1}');
       // 行尾的 " + var +（没有后续开引号，下一行以 " 开头）
-      line = line.replace(/"\s*\+\s*([\w.()]+)\s*\+\s*$/g, '${$1}');
+      line = line.replace(/"\s*\+\s*([\w.()]+)\s*\+\s*$/g, (m, varName) => shouldKeepConcat(varName) ? `\` + ${varName} +` : '${' + varName + '}');
       // 行尾的 " + (expr)（没有后续开引号）
       line = line.replace(/"\s*\+\s*(\((?:[^()]|\([^()]*\))*\))\s*$/g, '${$1}');
       // 行尾的 " + var（没有后续开引号）
-      line = line.replace(/"\s*\+\s*([\w.()]+)\s*$/g, '${$1}');
+      line = line.replace(/"\s*\+\s*([\w.()]+)\s*$/g, (m, varName) => shouldKeepConcat(varName) ? `\` + ${varName}` : '${' + varName + '}');
       // 行首的 (expr) + " 或 var + "（没有前导闭引号）
       line = line.replace(/^(\((?:[^()]|\([^()]*\))*\))\s*\+\s*"/g, '${$1}');
-      line = line.replace(/^([\w.()]+)\s*\+\s*"/g, '${$1}');
+      line = line.replace(/^([\w.()]+)\s*\+\s*"/g, (m, varName) => shouldKeepConcat(varName) ? `${varName} + \`` : '${' + varName + '}');
       // " + "（字符串段拼接，无变量）→ 移除
       line = line.replace(/"\s*\+\s*"/g, '');
 
@@ -1061,6 +1088,10 @@ function convertBlockToTemplate(block) {
       }
     }
 
+    // 如果 pendingNewTemplate 仍为 true（backtick 行后有续行但 block 结束），先闭合模板
+    if (pendingNewTemplate) {
+      result.push(`${indent}\``);
+    }
     result.push(hasTrailingSemicolon ? `${indent}\`;` : `${indent}\``);
     return result.join('\n');
   } catch (e) {
