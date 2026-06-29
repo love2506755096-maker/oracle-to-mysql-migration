@@ -1,13 +1,15 @@
 {
-  "targetPath": "D:\\Project\\dcits-cxtj-app\\views\\bi\\sgs\\zzyzxwqyyhjn_2023\\rkqkb_fdq_2023\\result.html",
+  "targets": [
+    "sgs\\xwqy\\2025njsjftjhs\\sj\\yxzctjb\\zdzc_mx_4"
+  ],
   "processedFiles": [
     {
-      "file": "",
+      "file": "top.html",
       "simpleReplacements": 0,
       "patternReplacements": 0,
       "toCharConversions": 0,
       "toCharNumberConversions": 0,
-      "concatConversions": 3,
+      "concatConversions": 0,
       "concatPipeFixes": 0,
       "commentRemovals": 0,
       "mergeSplitToChar": 0,
@@ -20,7 +22,30 @@
       "pivotConversions": 0,
       "fm99Conversions": 0,
       "swjgSqlFixes": 0,
-      "templateLiteralConverted": 1,
+      "templateLiteralConverted": 0,
+      "templateLiteralFailed": [],
+      "complexPatterns": []
+    },
+    {
+      "file": "top_result.html",
+      "simpleReplacements": 0,
+      "patternReplacements": 0,
+      "toCharConversions": 0,
+      "toCharNumberConversions": 0,
+      "concatConversions": 0,
+      "concatPipeFixes": 0,
+      "commentRemovals": 0,
+      "mergeSplitToChar": 0,
+      "toDateConversions": 0,
+      "instrConversions": 0,
+      "toNumberConversions": 0,
+      "addMonthsConversions": 0,
+      "monthsBetweenConversions": 0,
+      "decodeConversions": 0,
+      "pivotConversions": 0,
+      "fm99Conversions": 0,
+      "swjgSqlFixes": 0,
+      "templateLiteralConverted": 0,
       "templateLiteralFailed": [],
       "complexPatterns": []
     }

@@ -99,32 +99,30 @@ SELECT CONCAT(a, '-', b) FROM t;
 
 > ⚠️⚠️⚠️ **【最高优先级·必须遵守】** ⚠️⚠️⚠️
 > 
-> **`(+)` 运算符必须原样保留，绝对不能转换！**
+> **`(+)` 运算符必须转换为标准 LEFT/RIGHT JOIN！**
 > 
-> - 不要将 `(+)` 转换为 `LEFT JOIN` 或 `RIGHT JOIN`
-> - 不要将 `(+)` 转换为 `JOIN ... ON`
-> - 保留 `(+)` 在原来的位置，不做任何修改
-> 
-> **但是**，同一 SQL 中的其他 Oracle 模式（NVL、DECODE、TO_CHAR、||、ROWNUM 等）**仍需正常转换**。
-> 切勿因 SQL 包含 `(+)` 就跳过整段 SQL。
+> - 不要保留 `(+)` 原样
+> - `WHERE T.xh(+) = D.xh` → `FROM D LEFT JOIN T ON T.xh = D.xh`（`(+)` 在哪侧，哪侧就是 LEFT JOIN 的右表，即补 NULL 侧）
+> - `WHERE a.id = b.id(+)` → `FROM a LEFT JOIN b ON a.id = b.id`
+> - `WHERE a.id(+) = b.id` → `FROM b LEFT JOIN a ON a.id = b.id`
 
-### 规则 3：左连接（仅供参考，实际不转换）
+### 规则 3：左连接（必须转换）
 
 | | |
 |---|---|
 | Oracle | `WHERE a.id(+) = b.id` |
 | MySQL | `FROM b LEFT JOIN a ON a.id = b.id` |
 
-> **注意：此规则仅供参考，实际项目中 `(+)` 必须保留原样。**
+> **注意：必须将 `(+)` 转换为标准 LEFT JOIN。**
 
-### 规则 4：右连接（仅供参考，实际不转换）
+### 规则 4：右连接（必须转换）
 
 | | |
 |---|---|
 | Oracle | `WHERE a.id = b.id(+)` |
 | MySQL | `FROM a RIGHT JOIN b ON a.id = b.id` |
 
-> **注意：此规则仅供参考，实际项目中 `(+)` 必须保留原样。**
+> **注意：必须将 `(+)` 转换为标准 LEFT/RIGHT JOIN。**
 
 ---
 
@@ -536,7 +534,7 @@ str_sql = `SELECT IFNULL(IFNULL(B.ZCMC, '&nbsp;'), '&nbsp;') ZCCS,
 - 使用反引号（`` ` ``）而非双引号表示多行 SQL 字符串
 - 将 `" + variable + "` 替换为 `${variable}`
 - 保留 SQL 内部用于字符串字面量的单引号（例如 `'&nbsp;'`、`'9'`）
-- 保留 `(+)` 运算符原样不变 — 不转换外连接语法
+- 将 `(+)` 运算符转换为标准 LEFT JOIN — 不保留 Oracle 外连接语法
 - 保持适当的缩进以提高可读性
 
 **优势：**
